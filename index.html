@@ -1,1 +1,126 @@
+<!DOCTYPE html><html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Work Advisor - Expériences saisonniers</title>
 
+<!-- Leaflet CSS -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+<style>
+body { font-family: Arial, sans-serif; margin:0; padding:0; }
+#map { height: 80vh; width: 100%; }
+#form-container { padding: 10px; }
+.notice { background:#f9f9f9; border:1px solid #ccc; padding:10px; margin-bottom:10px; }
+</style>
+</head>
+<body>
+
+<h1 style="text-align:center;">Work Advisor</h1>
+
+<div class="notice">
+<strong>Important :</strong> Les avis publiés reflètent l’expérience personnelle des utilisateurs.
+Ils ne constituent pas des accusations factuelles.
+Tout contenu diffamatoire sera supprimé.
+Tous les avis sont validés avant publication.
+</div>
+
+<div id="map"></div>
+
+<div id="form-container">
+<h2>Ajouter une entreprise et/ou un avis</h2>
+<form id="add-form">
+<label>Nom de l'entreprise : <input type="text" id="company-name" required></label><br><br>
+<label>Ville : <input type="text" id="company-city" required></label><br><br>
+<label>Secteur (facultatif) : <input type="text" id="company-sector"></label><br><br>
+<label>Votre expérience : <textarea id="review-text" required></textarea></label><br><br>
+<label>Note (1 à 5) : <input type="number" id="review-rating" min="1" max="5" required></label><br><br>
+<button type="submit">Proposer</button>
+</form>
+</div>
+
+<!-- Leaflet JS -->
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<!-- Firebase -->
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+
+<script>
+// 🔹 CONFIGURATION FIREBASE - Remplace par tes infos
+const firebaseConfig = {
+apiKey: "VOTRE_API_KEY",
+authDomain: "VOTRE_PROJECT.firebaseapp.com",
+projectId: "VOTRE_PROJECT",
+storageBucket: "VOTRE_PROJECT.appspot.com",
+messagingSenderId: "VOTRE_ID",
+appId: "VOTRE_APP_ID"
+};
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+
+// 🔹 INIT MAP
+const map = L.map('map').setView([46.5, 2.5], 6); // France centrée
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+attribution: '© OpenStreetMap contributors'
+}).addTo(map);
+
+// 🔹 Fonction pour afficher les entreprises validées
+function loadCompanies() {
+db.collection("companies").get().then(snapshot => {
+snapshot.forEach(doc => {
+const data = doc.data();
+const marker = L.marker([data.lat, data.lng]).addTo(map);
+let popupContent = `<strong>${data.name} - ${data.city}</strong><br>`;
+if(data.sector) popupContent += `Secteur : ${data.sector}<br>`;
+popupContent += `Note moyenne : ${data.averageRating.toFixed(1)} / 5 (${data.reviewCount} avis)<br>`;
+popupContent += "<em>Expériences :</em><ul>";
+doc.ref.collection("reviews").get().then(reviewsSnap => {
+reviewsSnap.forEach(r => {
+const rev = r.data();
+popupContent += `<li>${rev.text} - ⭐${rev.rating}</li>`;
+});
+popupContent += "</ul>";
+marker.bindPopup(popupContent);
+});
+});
+});
+}
+loadCompanies();
+
+// 🔹 Ajouter une entreprise + avis (proposé, non publié directement)
+document.getElementById('add-form').addEventListener('submit', (e) => {
+e.preventDefault();
+const name = document.getElementById('company-name').value.trim();
+const city = document.getElementById('company-city').value.trim();
+const sector = document.getElementById('company-sector').value.trim();
+const reviewText = document.getElementById('review-text').value.trim();
+const reviewRating = parseInt(document.getElementById('review-rating').value);
+
+// On peut chercher la géolocalisation approximative via OpenStreetMap Nominatim (facultatif)
+fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(name + " " + city)}`)
+.then(res => res.json())
+.then(data => {
+let lat = 46.5, lng = 2.5; // par défaut
+if(data[0]) { lat = parseFloat(data[0].lat); lng = parseFloat(data[0].lon); }
+
+// Ajouter dans pending_companies
+db.collection("pending_companies").add({
+name, city, sector, lat, lng, createdAt: firebase.firestore.Timestamp.now()
+});
+
+// Ajouter avis dans pending_reviews
+db.collection("pending_reviews").add({
+companyName: name,
+text: reviewText,
+rating: reviewRating,
+createdAt: firebase.firestore.Timestamp.now()
+});
+
+alert("Merci ! Votre proposition sera validée avant publication.");
+document.getElementById('add-form').reset();
+});
+});
+</script>
+
+</body>
+</html>
